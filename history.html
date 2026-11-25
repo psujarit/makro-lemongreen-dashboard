@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ยอดขายย้อนหลัง · Makro × Lemon Green Mart</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    :root{font-family:'Noto Sans Thai',system-ui,sans-serif;color:#1f2a22;background:#f7faf5;--red:#d7141a;--green:#2e9e4f;--border:#e3ebe0;--muted:#66736a}
+    *{box-sizing:border-box}body{margin:0}header{background:linear-gradient(100deg,var(--red),var(--green));color:white;padding:16px 22px;border-bottom:4px solid #a5d63f}h1{font-size:20px;margin:0}main{max-width:1200px;margin:auto;padding:16px}.card{background:white;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px}.controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.field{display:grid;gap:5px}label,.hint{font-size:12px;color:var(--muted)}input,select,button{font:inherit;border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:white;color:inherit}button{background:#a5d63f;border:0;font-weight:700;cursor:pointer}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.kpi{border-top:4px solid var(--green)}.kpi b{display:block;font-size:23px;margin-top:3px}.scroll{overflow:auto;max-height:65vh}table{border-collapse:collapse;width:100%;min-width:700px}th,td{padding:8px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}th{position:sticky;top:0;background:#fff;color:var(--muted)}td.num,th.num{text-align:right}.status{font-size:13px;margin-top:10px}.error{color:#c00}.notice{background:#fff8df;border:1px solid #f1df9b;border-radius:8px;padding:10px;margin-bottom:14px}.publish{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:14px}.publish button{align-self:end}@media(max-width:600px){main{padding:10px}.card{padding:12px}}
+  </style>
+</head>
+<body>
+  <header><h1>📅 ดูยอดขายย้อนหลัง · Makro × Lemon Green Mart</h1></header>
+  <main>
+    <div class="notice">ประวัติจะเริ่มเก็บตั้งแต่วันที่อัปโหลดไฟล์ผ่านหน้านี้เป็นต้นไป วันที่ผ่านมาแล้วจะมีให้เลือกเฉพาะวันที่มี snapshot ในระบบเท่านั้น</div>
+    <section class="card controls">
+      <div class="field"><label for="date">วันที่ต้องการดู</label><select id="date"><option>กำลังโหลด…</option></select></div>
+      <div class="field"><label for="region">ภูมิภาค</label><select id="region"><option value="ALL">ทุกภูมิภาค</option></select></div>
+      <div class="field"><label for="search">ค้นหาสาขา / รหัส</label><input id="search" type="search" placeholder="พิมพ์ชื่อหรือรหัสสาขา"></div>
+    </section>
+    <section class="kpis" id="kpis"></section>
+    <section class="card"><h2>รายละเอียดสาขา</h2><div class="scroll"><table id="table"></table></div></section>
+    <section class="card">
+      <h2>บันทึก snapshot รายวัน</h2>
+      <p class="hint">เลือกไฟล์ Excel ยอดขายรายวัน (มีคอลัมน์ Cus code และวันที่ในหัวไฟล์) เพื่อเพิ่มวันนั้นในประวัติ ระบบจะบันทึกลง data.json ของ repository</p>
+      <div class="controls">
+        <div class="field"><label for="xlsx">ไฟล์ Excel</label><input id="xlsx" type="file" accept=".xlsx,.xls"></div>
+      </div>
+      <div class="publish">
+        <div class="field"><label for="repo">Repository (owner/name)</label><input id="repo" value="psujarit/makro-lemongreen-dashboard"></div>
+        <div class="field"><label for="branch">Branch ที่ใช้เผยแพร่ data.json</label><input id="branch" value="main"></div>
+        <div class="field"><label for="token">GitHub token (Contents: Read and write)</label><input id="token" type="password" autocomplete="off" placeholder="วาง token เพื่อบันทึก snapshot"></div>
+        <button id="upload">บันทึก snapshot</button>
+      </div>
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+    </section>
+  </main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>'฿'+Math.round(Number(n)||0).toLocaleString('en-US');
+let data={}, snapshots={};
+function dateLabel(iso){const d=new Date(iso+'T00:00:00');return d.toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'});}
+function snapshotMap(){snapshots={...(data['ds/dailyHistory']||{})};const current=data['ds/cur'];if(current?.date&&!snapshots[current.date])snapshots[current.date]=current;}
+async function load(){try{const r=await fetch('data.json?v='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error('โหลด data.json ไม่สำเร็จ ('+r.status+')');data=await r.json();snapshotMap();populateDates();render();$('status').textContent='โหลดข้อมูลเรียบร้อย';}catch(e){$('date').innerHTML='<option value="">ไม่มีข้อมูล</option>';setStatus(e.message,true);}}
+function populateDates(selected){const dates=Object.keys(snapshots).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse();$('date').innerHTML=dates.length?dates.map(d=>'<option value="'+esc(d)+'">'+esc(dateLabel(d))+'</option>').join(''):'<option value="">ยังไม่มี snapshot</option>';if(selected&&dates.includes(selected))$('date').value=selected;}
+function selected(){return snapshots[$('date').value]||null;}
+function render(){const snap=selected();if(!snap){$('kpis').innerHTML='<div class="card">ยังไม่มีข้อมูลในวันที่เลือก</div>';$('table').innerHTML='';$('region').innerHTML='<option value="ALL">ทุกภูมิภาค</option>';return;}
+ const rows=Array.isArray(snap.rows)?snap.rows:[], total=rows.reduce((s,r)=>s+(Number(r[6])||0),0), regions=[...new Set(rows.map(r=>String(r[2]||'')))].sort();
+ const prevRegion=$('region').value;$('region').innerHTML='<option value="ALL">ทุกภูมิภาค</option>'+regions.map(r=>'<option value="'+esc(r)+'">'+esc(r||'ไม่ระบุ')+'</option>').join('');if(regions.includes(prevRegion))$('region').value=prevRegion;
+ $('kpis').innerHTML='<div class="card kpi"><span class="hint">วันที่ของข้อมูล</span><b>'+esc(dateLabel(snap.date||$('date').value))+'</b></div><div class="card kpi"><span class="hint">ยอดขายรวม</span><b>'+money(total)+'</b></div><div class="card kpi"><span class="hint">จำนวนสาขา</span><b>'+rows.length.toLocaleString('th-TH')+'</b></div>';
+ const q=$('search').value.trim().toLocaleLowerCase();const filtered=rows.filter(r=>($('region').value==='ALL'||String(r[2]||'')===$('region').value)&&(!q||(String(r[1]||'')+' '+String(r[0]||'')+' '+String(r[5]||'')+' '+String(r[4]||'')).toLocaleLowerCase().includes(q))).sort((a,b)=>(Number(b[6])||0)-(Number(a[6])||0));
+ $('table').innerHTML='<thead><tr><th>#</th><th>สาขา</th><th>รหัสสาขา</th><th>ภูมิภาค</th><th class="num">ยอดขาย</th></tr></thead><tbody>'+filtered.map((r,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(r[1]||r[5]||'')+'</td><td>'+esc(r[0]||r[4]||'')+'</td><td>'+esc(r[2]||'')+'</td><td class="num">'+money(r[6])+'</td></tr>').join('')+'</tbody>';
+}
+function setStatus(text,bad=false){$('status').textContent=text;$('status').className='status'+(bad?' error':'');}
+function parseWorkbook(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(Error('อ่านไฟล์ไม่ได้'));reader.onload=e=>{try{const wb=XLSX.read(e.target.result,{type:'array',cellDates:true,sheetRows:4000});for(const name of wb.SheetNames){const sheet=wb.Sheets[name],a=XLSX.utils.sheet_to_json(sheet,{header:1,raw:true,defval:null}),hi=a.findIndex(r=>r&&String(r[0]).trim()==='Cus code');if(hi<0)continue;let date=null;for(let i=0;i<hi;i++)for(const cell of a[i]||[])if(cell instanceof Date)date=cell;if(!date)throw Error('ไม่พบวันที่ในส่วนหัวของไฟล์');const h=a[hi].map(x=>String(x||'').trim()),ix=k=>h.indexOf(k),num=v=>typeof v==='number'?v:0,rows=[];for(let i=hi+1;i<a.length;i++){const r=a[i];if(!r||r[ix('Cus code')]==null||r[ix('GS Name')]==null)continue;rows.push([r[ix('Cus code')],String(r[ix('GS Name')]).trim(),r[ix('Region')]||'',r[ix('Store salesman')]||'',r[ix('Customer id')],String(r[ix('Cust num name')]||'').replace(/^\d+_/,'').trim(),num(r[ix('SalesExcl CY')]),num(r[ix('SalesMTD LY')]),num(r[ix('SalesExcl LY')])]);}if(rows.length){const iso=[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');resolve({date:iso,month:iso.slice(0,7),label:date.toLocaleDateString('th-TH',{year:'numeric',month:'short'}),rows});return;}}reject(Error('ไม่พบตารางยอดขายที่มีหัวคอลัมน์ Cus code'));}catch(err){reject(err);}};reader.readAsArrayBuffer(file);});}
+async function publishSnapshot(){const file=$('xlsx').files[0],repo=$('repo').value.trim(),branch=$('branch').value.trim()||'main',token=$('token').value.trim();if(!file)return setStatus('กรุณาเลือกไฟล์ Excel',true);if(!token)return setStatus('กรุณาใส่ GitHub token ที่มีสิทธิ์เขียน Contents',true);if(!/^[^/]+\/[^/]+$/.test(repo))return setStatus('รูปแบบ Repository ต้องเป็น owner/name',true);$('upload').disabled=true;setStatus('กำลังอ่านไฟล์และบันทึก…');try{const snap=await parseWorkbook(file);const url='https://api.github.com/repos/'+repo+'/contents/data.json',headers={Authorization:'Bearer '+token,Accept:'application/vnd.github+json'};const get=await fetch(url+'?ref='+encodeURIComponent(branch)+'&t='+Date.now(),{headers,cache:'no-store'});if(!get.ok)throw Error('อ่าน data.json ไม่ได้ ('+get.status+'). ตรวจ branch และ token');const remote=await get.json(),raw=atob(remote.content.replace(/\s/g,'')),bytes=Uint8Array.from(raw,c=>c.charCodeAt(0)),remoteData=JSON.parse(new TextDecoder().decode(bytes));const archive={...(remoteData['ds/dailyHistory']||{})};archive[snap.date]=snap;remoteData['ds/dailyHistory']=archive;if(!remoteData['ds/cur']||snap.date>=remoteData['ds/cur'].date)remoteData['ds/cur']=snap;const encodedBytes=new TextEncoder().encode(JSON.stringify(remoteData));let binary='';for(let i=0;i<encodedBytes.length;i+=8192)binary+=String.fromCharCode(...encodedBytes.subarray(i,i+8192));const put=await fetch(url,{method:'PUT',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({message:'Save daily sales snapshot '+snap.date,content:btoa(binary),sha:remote.sha,branch})});if(!put.ok){const err=await put.json().catch(()=>({}));throw Error('บันทึกไม่สำเร็จ ('+put.status+'): '+(err.message||''));}data=remoteData;snapshotMap();populateDates(snap.date);render();$('token').value='';$('xlsx').value='';setStatus('บันทึก snapshot วันที่ '+dateLabel(snap.date)+' แล้ว เลือกวันที่จากตัวกรองด้านบนเพื่อดูย้อนหลัง');}catch(e){setStatus(e.message||String(e),true);}finally{$('upload').disabled=false;}}
+$('date').addEventListener('change',render);$('region').addEventListener('change',render);$('search').addEventListener('input',render);$('upload').addEventListener('click',publishSnapshot);load();
+</script>
+</body>
+</html>
